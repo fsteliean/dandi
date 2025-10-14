@@ -14,7 +14,7 @@ export default function ProtectedPage() {
 
   useEffect(() => {
     validateApiKey();
-  }, []);
+  }, [validateApiKey]);
 
   const validateApiKey = async () => {
     try {
