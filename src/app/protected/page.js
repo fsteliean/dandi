@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Toast from '@/components/Toast';
@@ -12,11 +12,11 @@ export default function ProtectedPage() {
   const [toast, setToast] = useState({ isVisible: false, message: '', type: 'success' });
   const router = useRouter();
 
-  useEffect(() => {
-    validateApiKey();
-  }, [validateApiKey]);
+  const showToast = useCallback((message, type = 'success') => {
+    setToast({ isVisible: true, message, type });
+  }, []);
 
-  const validateApiKey = async () => {
+  const validateApiKey = useCallback(async () => {
     try {
       const apiKey = sessionStorage.getItem('apiKey');
       
@@ -52,11 +52,11 @@ export default function ProtectedPage() {
     } finally {
       setIsValidating(false);
     }
-  };
+  }, [showToast]);
 
-  const showToast = (message, type = 'success') => {
-    setToast({ isVisible: true, message, type });
-  };
+  useEffect(() => {
+    validateApiKey();
+  }, [validateApiKey]);
 
   const hideToast = () => {
     setToast({ isVisible: false, message: '', type: 'success' });
