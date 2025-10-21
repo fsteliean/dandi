@@ -9,6 +9,9 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@langchain/community": "^1.0.0",
+    "@langchain/core": "^1.0.1",
+    "@langchain/openai": "^1.0.0",
     "@supabase/supabase-js": "^2.58.0",
     "next": "15.4.6",
     "react": "19.1.0",
@@ -20,5 +23,8 @@
     "eslint": "^9",
     "eslint-config-next": "15.4.6",
     "tailwindcss": "^4"
+  },
+  "resolutions": {
+    "@langchain/core": "1.0.1"
   }
 }

@@ -49,7 +49,7 @@ This will create:
 
 1. Restart your development server:
    ```bash
-   npm run dev
+   yarn dev
    ```
 
 2. Visit `http://localhost:3000/dashboards`
