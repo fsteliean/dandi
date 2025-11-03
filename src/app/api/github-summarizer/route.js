@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { getSummarizeGithubReadmeChain } from '@/lib/chain';
+import { ChatOpenAI } from '@langchain/openai';
 
 // POST - Validate an API key
 export async function POST(request) {
@@ -47,6 +48,14 @@ export async function POST(request) {
     // The API key has been validated and you have access to the validated key data
     // You can now proceed with the GitHub API calls and summarization logic
 
+    // Validate githubUrl
+    if (!githubUrl) {
+      return NextResponse.json(
+        { success: false, error: 'GitHub URL is required' },
+        { status: 400 }
+      );
+    }
+
     // Call the GitHub README function and log the result
     console.log('Fetching README content for:', githubUrl);
     const readmeContent = await getRepoReadmeContent(githubUrl);
@@ -81,22 +90,33 @@ export async function POST(request) {
       }
     }
 
+    // Check if README content was found
+    if (!readmeContent) {
+      return NextResponse.json(
+        { success: false, error: 'README content not found' },
+        { status: 404 }
+      );
+    }
 
-
-
-    return NextResponse.json({
-      success: true,
-      valid: true,
-      data: {
-        id: data.id,
-        name: data.name,
-        key: data.key,
-        monthlyLimit: data.monthly_limit,
-        permissions: data.permissions,
-        createdAt: data.created_at,
-        lastUsed: new Date().toISOString()
-      }
-    });
+    // Initialize LLM and summarize README
+    try {
+      const llm = new ChatOpenAI({ model: "gpt-4o" });
+      const chain = await getSummarizeGithubReadmeChain(llm);
+      const summaryObj = await chain.invoke({ readmeContent });
+      
+      // summaryObj is { summary: string, cool_facts: string[] }
+      return NextResponse.json({
+        success: true,
+        summary: summaryObj.summary,
+        cool_facts: summaryObj.cool_facts,
+      });
+    } catch (e) {
+      console.error('Summarization error:', e);
+      return NextResponse.json(
+        { success: false, error: `Summarization failed: ${e.message}` },
+        { status: 500 }
+      );
+    }
   } catch (error) {
     console.error('Error validating API key:', error);
     return NextResponse.json(
@@ -104,40 +124,6 @@ export async function POST(request) {
       { status: 500 }
     );
   }
-}
-
-
-// -- After fetching the README, call the chain and get the summary object --
-
-// Below assumes you have an LLM instance called 'llm', and 'readmeContent' string is available.
-// For example, if using OpenAI: import { ChatOpenAI } from "@langchain/openai"; const llm = new ChatOpenAI({ model: "gpt-4o" });
-//
-// If you want to tie into your current API handler logic,
-// add this after you fetch 'readmeContent':
-
-// --- Example invocation logic: ---
-
-const llm = ... // Your LLM instance
-if (!readmeContent) {
-  return NextResponse.json(
-    { success: false, error: 'README content not found' },
-    { status: 404 }
-  );
-}
-try {
-  const chain = await getSummarizeGithubReadmeChain(llm);
-  const summaryObj = await chain.invoke({ readmeContent });
-  // summaryObj is { summary: string, cool_facts: string[] }
-  return NextResponse.json({
-    success: true,
-    summary: summaryObj.summary,
-    cool_facts: summaryObj.cool_facts,
-  });
-} catch (e) {
-  return NextResponse.json(
-    { success: false, error: `Summarization failed: ${e.message}` },
-    { status: 500 }
-  );
 }
 
 
