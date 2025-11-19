@@ -2,9 +2,25 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useAuth } from "@/contexts/AuthContext";
 import GoogleLoginButton from "@/components/GoogleLoginButton";
 
 export default function Home() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { user } = useAuth();
+
+  // Clear error parameter if user is authenticated
+  useEffect(() => {
+    const error = searchParams.get('error');
+    if (error && user) {
+      // User is authenticated but there's an error in URL - clear it
+      router.replace('/');
+    }
+  }, [user, searchParams, router]);
+
   return (
     <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
       <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
