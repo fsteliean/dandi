@@ -16,24 +16,76 @@ export const useAuth = () => {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [supabase] = useState(() => createBrowserClient());
+  const [error, setError] = useState(null);
+  
+  const [supabase] = useState(() => {
+    try {
+      return createBrowserClient();
+    } catch (err) {
+      console.error('Failed to create Supabase client:', err);
+      return null;
+    }
+  });
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
+    if (!supabase) {
+      setError('Failed to initialize Supabase client. Please check your environment variables.');
       setLoading(false);
+      return;
+    }
+
+    let isMounted = true;
+    let subscription = null;
+
+    // Create a timeout promise
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Session check timed out')), 5000);
     });
+
+    // Get initial session with error handling and timeout
+    Promise.race([
+      supabase.auth.getSession(),
+      timeoutPromise
+    ])
+      .then((result) => {
+        if (!isMounted) return;
+        
+        if (result && 'data' in result) {
+          const { data: { session }, error: sessionError } = result;
+          if (sessionError) {
+            console.error('Error getting session:', sessionError);
+            setError(sessionError.message);
+          } else {
+            setUser(session?.user ?? null);
+          }
+        }
+        setLoading(false);
+      })
+      .catch((err) => {
+        if (!isMounted) return;
+        console.error('Error in getSession:', err);
+        setError(err.message || 'Failed to get session');
+        setLoading(false);
+      });
 
     // Listen for auth changes
     const {
-      data: { subscription },
+      data: { subscription: authSubscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!isMounted) return;
       setUser(session?.user ?? null);
       setLoading(false);
+      setError(null); // Clear error on successful auth state change
     });
+    
+    subscription = authSubscription;
 
-    return () => subscription.unsubscribe();
+    return () => {
+      isMounted = false;
+      if (subscription) {
+        subscription.unsubscribe();
+      }
+    };
   }, [supabase]);
 
   const signInWithGoogle = async () => {
@@ -63,6 +115,7 @@ export function AuthProvider({ children }) {
   const value = {
     user,
     loading,
+    error,
     signInWithGoogle,
     signOut,
     supabase,
