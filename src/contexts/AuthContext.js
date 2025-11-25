@@ -62,6 +62,42 @@ export function AuthProvider({ children }) {
     window.addEventListener('error', handleUnhandledError);
     window.addEventListener('unhandledrejection', handleUnhandledRejection);
 
+    // Helper function to create user in users table
+    const createUserIfNeeded = async (user) => {
+      if (!user || !user.id || !user.email) {
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/users', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            id: user.id,
+            email: user.email,
+            name: user.user_metadata?.full_name || user.user_metadata?.name || null,
+            image: user.user_metadata?.avatar_url || user.user_metadata?.picture || null,
+          }),
+        });
+
+        const data = await response.json();
+        if (data.success) {
+          if (data.created) {
+            console.log('New user created in database:', user.email);
+          } else {
+            console.log('User already exists in database:', user.email);
+          }
+        } else {
+          console.error('Failed to create/check user:', data.error, data.details);
+        }
+      } catch (err) {
+        // Don't throw - user creation failure shouldn't break the app
+        console.error('Error creating user in database:', err);
+      }
+    };
+
     // Get initial session with error handling and timeout
     const getInitialSession = async () => {
       // Set a timeout to ensure loading doesn't hang forever
@@ -91,9 +127,15 @@ export function AuthProvider({ children }) {
         }
         
         // Set user based on session (will be null if no session, which is fine)
-        setUser(session?.user ?? null);
+        const currentUser = session?.user ?? null;
+        setUser(currentUser);
         setError(null); // Don't set error state - missing session is normal
         setLoading(false);
+        
+        // If we have a session, ensure user exists in users table
+        if (currentUser) {
+          createUserIfNeeded(currentUser);
+        }
       } catch (err) {
         clearTimeout(timeoutId);
         
@@ -130,6 +172,8 @@ export function AuthProvider({ children }) {
               // Log for debugging
               if (_event === 'SIGNED_IN' && session?.user) {
                 console.log('User signed in:', session.user.email);
+                // Create user in users table if first time login
+                createUserIfNeeded(session.user);
               } else if (_event === 'SIGNED_OUT') {
                 console.log('User signed out');
               }
