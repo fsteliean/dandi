@@ -22,7 +22,12 @@ function HomeContent() {
   }, [user, searchParams, router]);
 
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
+    <div className="font-sans grid grid-rows-[auto_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
+      {/* Header with Sign In/Out button in top right */}
+      <header className="w-full flex justify-end items-center row-start-1">
+        <GoogleLoginButton />
+      </header>
+
       <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
         <Image
           className="dark:invert"
@@ -46,7 +51,6 @@ function HomeContent() {
         </ol>
 
         <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <GoogleLoginButton />
           <Link
             className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-blue-600 text-white gap-2 hover:bg-blue-700 font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
             href="/dashboards"
@@ -135,7 +139,10 @@ function HomeContent() {
 export default function Home() {
   return (
     <Suspense fallback={
-      <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
+      <div className="font-sans grid grid-rows-[auto_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
+        <header className="w-full flex justify-end items-center row-start-1">
+          <div className="w-32 h-10 bg-gray-200 dark:bg-gray-700 rounded-full animate-pulse"></div>
+        </header>
         <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
         </main>
