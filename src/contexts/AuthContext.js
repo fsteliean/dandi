@@ -36,55 +36,135 @@ export function AuthProvider({ children }) {
 
     let isMounted = true;
     let subscription = null;
-
-    // Create a timeout promise
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Session check timed out')), 5000);
-    });
+    
+    // Global error handler for uncaught Supabase auth errors
+    const handleUnhandledError = (event) => {
+      const error = event.error || event.reason;
+      const errorMessage = error?.message || error?.toString() || '';
+      if (errorMessage.includes('session missing') || errorMessage.includes('Auth session missing') || errorMessage.includes('AuthSessionMissingError')) {
+        // Prevent these errors from showing in the console/UI
+        event.preventDefault();
+        event.stopPropagation();
+        return false;
+      }
+    };
+    
+    const handleUnhandledRejection = (event) => {
+      const error = event.reason;
+      const errorMessage = error?.message || error?.toString() || '';
+      if (errorMessage.includes('session missing') || errorMessage.includes('Auth session missing') || errorMessage.includes('AuthSessionMissingError')) {
+        // Prevent these errors from showing in the console/UI
+        event.preventDefault();
+        return false;
+      }
+    };
+    
+    window.addEventListener('error', handleUnhandledError);
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
 
     // Get initial session with error handling and timeout
-    Promise.race([
-      supabase.auth.getSession(),
-      timeoutPromise
-    ])
-      .then((result) => {
+    const getInitialSession = async () => {
+      // Set a timeout to ensure loading doesn't hang forever
+      const timeoutId = setTimeout(() => {
+        if (isMounted) {
+          console.warn('Session check timed out, setting loading to false');
+          setLoading(false);
+          // Don't set user to null on timeout - might have a session
+        }
+      }, 3000); // 3 second timeout
+
+      try {
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        clearTimeout(timeoutId);
+        
         if (!isMounted) return;
         
-        if (result && 'data' in result) {
-          const { data: { session }, error: sessionError } = result;
-          if (sessionError) {
-            console.error('Error getting session:', sessionError);
-            setError(sessionError.message);
-          } else {
-            setUser(session?.user ?? null);
+        // Always set user based on session, regardless of errors
+        // If there's an error, we'll just treat it as "no session" which is fine
+        if (sessionError) {
+          const errorMessage = sessionError.message || '';
+          // Only log non-session-missing errors
+          if (!errorMessage.includes('session missing') && !errorMessage.includes('Auth session missing')) {
+            console.warn('Session error (non-critical):', sessionError);
           }
         }
+        
+        // Set user based on session (will be null if no session, which is fine)
+        setUser(session?.user ?? null);
+        setError(null); // Don't set error state - missing session is normal
         setLoading(false);
-      })
-      .catch((err) => {
+      } catch (err) {
+        clearTimeout(timeoutId);
+        
         if (!isMounted) return;
-        console.error('Error in getSession:', err);
-        setError(err.message || 'Failed to get session');
+        
+        // Any error getting session just means no session - that's fine
+        const errorMessage = err?.message || String(err) || '';
+        if (!errorMessage.includes('session missing') && !errorMessage.includes('Auth session missing')) {
+          console.warn('Error getting session (non-critical):', err);
+        }
+        
+        // Treat any error as "no session" - this is the safe default
+        setUser(null);
+        setError(null);
         setLoading(false);
-      });
+      }
+      
+      // Set up auth state listener AFTER initial session check
+      // This prevents onAuthStateChange from throwing errors during initialization
+      setTimeout(() => {
+        if (!isMounted) return;
+        
+        try {
+          const {
+            data: { subscription: authSubscription },
+          } = supabase.auth.onAuthStateChange(async (_event, session) => {
+            if (!isMounted) return;
+            try {
+              // Always update user and loading state on auth state change
+              setUser(session?.user ?? null);
+              setLoading(false);
+              setError(null); // Clear error on successful auth state change
+              
+              // Log for debugging
+              if (_event === 'SIGNED_IN' && session?.user) {
+                console.log('User signed in:', session.user.email);
+              } else if (_event === 'SIGNED_OUT') {
+                console.log('User signed out');
+              }
+            } catch (err) {
+              // Silently handle errors in the callback - don't let them break the app
+              const errorMessage = err?.message || String(err) || '';
+              if (!errorMessage.includes('session missing') && !errorMessage.includes('Auth session missing')) {
+                console.warn('Error in auth state change handler:', err);
+              }
+              // Still set loading to false even on error
+              setLoading(false);
+            }
+          });
+          
+          subscription = authSubscription;
+        } catch (err) {
+          // Silently handle setup errors - missing session is normal
+          const errorMessage = err?.message || String(err) || '';
+          if (!errorMessage.includes('session missing') && !errorMessage.includes('Auth session missing')) {
+            console.warn('Error setting up auth state listener:', err);
+          }
+          // Continue anyway - the app should still work
+        }
+      }, 0);
+    };
 
-    // Listen for auth changes
-    const {
-      data: { subscription: authSubscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!isMounted) return;
-      setUser(session?.user ?? null);
-      setLoading(false);
-      setError(null); // Clear error on successful auth state change
-    });
-    
-    subscription = authSubscription;
+    getInitialSession();
 
     return () => {
       isMounted = false;
       if (subscription) {
         subscription.unsubscribe();
       }
+      window.removeEventListener('error', handleUnhandledError);
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
     };
   }, [supabase]);
 
@@ -110,11 +190,53 @@ export function AuthProvider({ children }) {
   };
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      console.error('Error signing out:', error);
-      throw error;
+    if (!supabase) {
+      // Even if supabase isn't initialized, clear local state
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const keys = Object.keys(localStorage);
+        keys.forEach(key => {
+          if (key.startsWith('sb-') || key.includes('supabase.auth.token')) {
+            localStorage.removeItem(key);
+          }
+        });
+      }
+      setUser(null);
+      return; // Don't throw - just clear local state
     }
+    
+    // Always clear local storage first to ensure immediate UI update
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const keys = Object.keys(localStorage);
+      keys.forEach(key => {
+        if (key.startsWith('sb-') || key.includes('supabase.auth.token')) {
+          localStorage.removeItem(key);
+        }
+      });
+    }
+    
+    // Force update user state immediately
+    setUser(null);
+    
+    // Then try to sign out on the server (but don't fail if this errors)
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        // Log but don't throw - we've already cleared local state
+        const errorMessage = error.message || error.toString() || '';
+        // Only log non-session errors as warnings
+        if (!errorMessage.includes('session') && !errorMessage.includes('Session')) {
+          console.warn('Sign out API error (non-critical, local state cleared):', error);
+        }
+      }
+    } catch (err) {
+      // Log but don't throw - we've already cleared local state
+      const errorMessage = err?.message || err?.toString() || '';
+      if (!errorMessage.includes('session') && !errorMessage.includes('Session')) {
+        console.warn('Sign out error (non-critical, local state cleared):', err);
+      }
+    }
+    
+    // Always succeed from user's perspective
   };
 
   const value = {

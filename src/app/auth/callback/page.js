@@ -9,77 +9,105 @@ function AuthCallbackContent() {
   const searchParams = useSearchParams();
 
   useEffect(() => {
+    let mounted = true;
+    let redirectTimeout = null;
+
     const handleAuthCallback = async () => {
       const supabase = createBrowserClient();
       
-      // Check for error parameters first
-      const error = searchParams.get('error');
-      const errorDescription = searchParams.get('error_description');
-      
-      if (error) {
-        console.error('OAuth error:', error, errorDescription);
-        router.push(`/?error=${encodeURIComponent(errorDescription || error)}`);
-        return;
-      }
+      // Set a safety timeout - always redirect after 5 seconds
+      redirectTimeout = setTimeout(() => {
+        if (mounted) {
+          console.warn('Auth callback timeout - redirecting to home');
+          router.replace('/');
+        }
+      }, 5000);
 
-      // Check for code parameter (PKCE flow)
-      const code = searchParams.get('code');
-      
-      if (code) {
-        try {
-          // Exchange the code for a session
-          const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-
-          if (exchangeError) {
-            console.error('Error exchanging code for session:', exchangeError);
-            router.push(`/?error=${encodeURIComponent(exchangeError.message || 'exchange_failed')}`);
-            return;
-          }
-
-          if (data?.session) {
-            // Success - redirect to home
-            router.push('/');
-            return;
-          } else {
-            console.error('No session returned from exchange');
-            router.push('/?error=no_session');
-            return;
-          }
-        } catch (err) {
-          console.error('Unexpected error in callback:', err);
-          router.push(`/?error=${encodeURIComponent(err.message || 'auth_failed')}`);
+      try {
+        // Check for error parameters first
+        const error = searchParams.get('error');
+        const errorDescription = searchParams.get('error_description');
+        
+        if (error) {
+          clearTimeout(redirectTimeout);
+          console.error('OAuth error:', error, errorDescription);
+          router.replace(`/?error=${encodeURIComponent(errorDescription || error)}`);
           return;
         }
-      }
 
-      // If no code, check if we already have a session (Supabase might have handled it)
-      // This can happen if Supabase redirects directly to home
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) {
-          // We have a session, redirect to home
-          router.push('/');
-          return;
+        // Check for code parameter (PKCE flow)
+        const code = searchParams.get('code');
+        
+        if (code) {
+          try {
+            // Exchange the code for a session
+            const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+
+            clearTimeout(redirectTimeout);
+
+            if (exchangeError) {
+              console.error('Error exchanging code for session:', exchangeError);
+              router.replace(`/?error=${encodeURIComponent(exchangeError.message || 'exchange_failed')}`);
+              return;
+            }
+
+            if (data?.session) {
+              // Success - redirect to home
+              router.replace('/');
+              return;
+            } else {
+              console.error('No session returned from exchange');
+              router.replace('/?error=no_session');
+              return;
+            }
+          } catch (err) {
+            clearTimeout(redirectTimeout);
+            console.error('Unexpected error in callback:', err);
+            router.replace(`/?error=${encodeURIComponent(err?.message || 'auth_failed')}`);
+            return;
+          }
+        }
+
+        // If no code, Supabase might have already handled it via detectSessionInUrl
+        // Check if we have a session
+        try {
+          const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+          
+          clearTimeout(redirectTimeout);
+          
+          if (session) {
+            // We have a session, redirect to home
+            router.replace('/');
+            return;
+          }
+          
+          // No session and no code - something went wrong
+          if (sessionError && !sessionError.message?.includes('session missing') && !sessionError.message?.includes('Auth session missing')) {
+            console.error('Error checking session:', sessionError);
+          }
+          
+          router.replace('/?error=auth_failed');
+        } catch (err) {
+          clearTimeout(redirectTimeout);
+          // Handle errors gracefully
+          if (!err?.message?.includes('session missing') && !err?.message?.includes('Auth session missing')) {
+            console.error('Error checking session:', err);
+          }
+          router.replace('/?error=auth_failed');
         }
       } catch (err) {
-        console.error('Error checking session:', err);
+        clearTimeout(redirectTimeout);
+        console.error('Fatal error in auth callback:', err);
+        router.replace('/?error=auth_failed');
       }
-
-      // If we get here, something went wrong
-      console.warn('No code parameter and no existing session in callback');
-      // Wait a bit and check again - sometimes Supabase needs a moment
-      setTimeout(() => {
-        supabase.auth.getSession().then(({ data: { session } }) => {
-          if (session) {
-            router.push('/');
-          } else {
-            router.push('/?error=auth_failed');
-          }
-        });
-      }, 1000);
     };
 
     handleAuthCallback();
+
+    return () => {
+      mounted = false;
+      if (redirectTimeout) clearTimeout(redirectTimeout);
+    };
   }, [router, searchParams]);
 
   return (

@@ -11,6 +11,14 @@ export function createBrowserClient() {
     throw new Error('Missing Supabase environment variables');
   }
 
-  return createClient(supabaseUrl, supabaseAnonKey);
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      // Don't throw errors on missing sessions
+      storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+    },
+  });
 }
 
